@@ -15,17 +15,35 @@ static inline __m256 simd_loadu_ps(const float *values)
 
 static inline __m256 simd_mul_ps(__m256 a, __m256 b)
 {
-    return a;
+    //Ejercicio A
+    return _mm256_mul_ps(a, b);
 }
 
 static inline float simd_reduce_add_ps(__m256 value)
 {
-    return 0.f;
+    //Ejercicio B
+    __m128 low =_mm256_extractf128_ps(value, 0);
+    __m128 high =_mm256_extractf128_ps(value, 1);
+
+    __m128 sum = _mm_add_ps(low, high);
+    sum = _mm_hadd_ps(sum, sum);
+    sum = _mm_hadd_ps(sum, sum);
+
+    return _mm_cvtss_f32(sum);
 }
 
 float dot_product_avx2(const float a[VECTOR_SIZE], const float b[VECTOR_SIZE])
 {
+    //Producto punto
     float result = 0.0f;
+
+    //Ejercicio C
+    for (int i = 0; i < VECTOR_SIZE; i += AVX_FLOATS) {
+        __m256 a_vec = simd_loadu_ps(&a[i]);
+        __m256 b_vec = simd_loadu_ps(&b[i]);
+        __m256 product = simd_mul_ps(a_vec, b_vec);
+        result += simd_reduce_add_ps(product);
+    }
 
     return result;
 }
