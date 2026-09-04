@@ -19,18 +19,6 @@ La suma tarda aproximadamente el doble que cada llenado debido a que debe leer l
 
 La versión dinámica utiliza `libvectorops.so`. A diferencia de la versión estática, el código de las operaciones vectoriales no se copia dentro del ejecutable: el cargador dinámico debe localizar la biblioteca y resolver sus símbolos cuando se ejecuta `bench-dynamic`.
 
-### Fundamento teórico
-
-El Capítulo 1 establece que el rendimiento de un programa es el inverso de su tiempo de ejecución:
-
-
-P = 1 / Te
-
-
-Por lo tanto, para la misma cantidad de elementos e iteraciones, la versión con menor tiempo posee mayor rendimiento. El capítulo también explica que las instrucciones y los datos recorren una jerarquía de memoria y que los accesos más cercanos al procesador presentan menor latencia. Esto permite comprender que el rendimiento no depende únicamente de la operación aritmética, sino también del acceso al código y a los datos.
-
-El Capítulo 2 señala que el tiempo total puede separarse en trabajo de cómputo y costos de comunicación o movimiento de información. En este ejercicio, ambas versiones realizan el mismo trabajo sobre los mismos vectores; la diferencia observada proviene de la forma en que el compilador y el enlazador organizan y llaman las funciones.
-
 ### Resultados experimentales
 
 | Ensayo | Fill A (μs/iteración) | Fill B (μs/iteración) | Suma (μs/iteración) | Total (s) |
@@ -96,3 +84,60 @@ La versión inline obtuvo un tiempo similar al de la biblioteca estática y fue 
 La inspección del ejecutable confirma que no existen símbolos ni llamadas a `fill_vector_inline`, `add_vectors_inline`, `value_from_index_inline` o `add_values_inline`. GCC insertó estas operaciones dentro de `main`. Esto le permite optimizar a través de los límites de las funciones, mientras que una biblioteca compilada por separado limita la información disponible durante la compilación del programa.
 
 De acuerdo con la definición de rendimiento del Capítulo 1, los tiempos cercanos de las versiones estática e inline representan un rendimiento equivalente para esta prueba. Declarar una función `static inline` facilita la optimización, pero no garantiza una mejora visible cuando el acceso a memoria domina la carga de trabajo.
+
+## Ejercicio D: tamaño de los archivos
+
+| Archivo | Tamaño en disco | Secciones (`text + data + bss`) |
+|---|---:|---:|
+| `bench-static` | 16888 B | 5785 B |
+| `bench-dynamic` | 16776 B | 5722 B |
+| `bench-inline` | 16704 B | 5911 B |
+| `bench-static-lto` | 16488 B | 5062 B |
+| `libvectorops.a` | 1832 B | 321 B |
+| `libvectorops.so` | 15384 B | 2110 B |
+
+`bench-static` es el ejecutable más grande en disco porque incorpora las funciones de `libvectorops.a`. `bench-dynamic` es menor porque conserva esas funciones en `libvectorops.so`, archivo externo requerido durante la ejecución. Esto fue comprobado con `ldd`.
+
+`libvectorops.so` es mayor que `libvectorops.a` porque contiene, además del código, encabezados ELF, tablas de símbolos y datos de reubicación necesarios para la carga dinámica. `bench-static-lto` es el menor ejecutable porque LTO elimina o integra código durante el enlace.
+
+El tamaño en disco y la suma mostrada por `size` miden aspectos distintos. El primero incluye todo el archivo y su alineamiento; el segundo muestra las secciones principales que forman el programa.
+
+## Ejercicio E: comparación con LTO
+
+Se ejecutó `run-all` tres veces con los mismos argumentos. Los siguientes valores son los promedios:
+
+| Versión | Fill A (μs/iteración) | Fill B (μs/iteración) | Suma (μs/iteración) | Total (s) |
+|---|---:|---:|---:|---:|
+| Estática | 868.495 | 862.863 | 1728.209 | 3.459567 |
+| Dinámica | 1956.511 | 1957.520 | 2028.347 | 5.942379 |
+| `static inline` | 844.114 | 826.874 | 1722.512 | 3.393500 |
+| Estática con LTO | 844.688 | 840.480 | 1720.680 | 3.405849 |
+
+LTO fue solo un `0.36 %` más lento que inline, diferencia que no es significativa para estas mediciones. El ejecutable LTO tampoco conserva símbolos separados para las operaciones vectoriales, lo que confirma que `-flto` permitió optimizar entre `benchmark_library.c` y `vector_ops.c` durante el enlace.
+
+La versión dinámica continuó siendo la más lenta porque mantiene llamadas mediante la PLT dentro de los ciclos. Las otras tres versiones producen ciclos similares y quedan principalmente limitadas por el recorrido de los vectores en memoria.
+
+## Diferencias entre las implementaciones
+
+- **Biblioteca estática:** copia en el ejecutable el código utilizado de la biblioteca. No necesita el archivo `.a` para ejecutarse, pero puede aumentar el tamaño del binario.
+- **Biblioteca dinámica:** mantiene el código en un archivo `.so` que puede compartirse y actualizarse de forma independiente. El ejecutable depende de ese archivo y sus símbolos se resuelven durante la carga.
+- **`static inline`:** coloca la definición en el encabezado y permite que el compilador inserte el código en el punto de uso. Facilita optimizaciones, aunque `inline` no garantiza por sí solo una mejora de rendimiento.
+- **LTO:** conserva los archivos fuente separados, pero permite analizarlos juntos durante el enlace. En esta prueba logró un resultado equivalente a `static inline`.
+
+## Fundamento teórico
+
+El Capítulo 1 define el rendimiento como el inverso del tiempo de ejecución:
+
+
+P = 1 / Te
+
+
+Por ello, las versiones se compararon con la misma cantidad de elementos e iteraciones. La versión con menor tiempo presenta mayor rendimiento.
+
+La jerarquía de memoria y la localidad espacial también influyen. Los ciclos recorren posiciones contiguas, pero los tres vectores ocupan cerca de `24 MB`, más que la caché L3 de `6 MiB` del equipo. Por esta razón, el movimiento de datos limita a las versiones estática, inline y LTO, aunque se eliminen llamadas a funciones.
+
+El Capítulo 2 separa el tiempo de un proceso en cómputo y comunicación o movimiento de datos. En este experimento, todas las versiones realizan las mismas operaciones; las diferencias proceden de las llamadas generadas, la visibilidad disponible para el compilador y el acceso a memoria. La versión dinámica conserva llamadas mediante la PLT, mientras que inline y LTO permiten optimizar entre funciones o archivos.
+
+## Conclusión
+
+La versión dinámica ofrece reutilización y actualización independiente, pero fue la más lenta y requiere `libvectorops.so`. Las versiones estática, inline y LTO obtuvieron tiempos cercanos. LTO igualó el rendimiento de inline y produjo el ejecutable más pequeño.
