@@ -69,3 +69,30 @@ La diferencia no se debe solamente a cargar la biblioteca al iniciar el programa
 La PLT permite que los símbolos de una biblioteca compartida sean resueltos o reemplazados durante la carga. En esta compilación, esa posibilidad impide que GCC aplique las mismas integraciones entre las funciones públicas de la biblioteca. Como se procesan mil millones de elementos durante los `1000` ensayos internos, el costo de una llamada adicional por elemento se acumula y se vuelve visible.
 
 Aunque `libvectorops.so` ocupa más bytes que `libvectorops.a`, estos archivos tienen formatos y propósitos diferentes. El archivo `.a` es un contenedor de objetos para el enlazador, mientras que el `.so` es un objeto ELF cargable que necesita tablas de símbolos, información de reubicación y metadatos para el enlazado dinámico. Por ello, su tamaño no debe compararse como si almacenaran exactamente la misma estructura.
+
+## Ejercicio C: funciones `static inline`
+
+Las funciones de esta versión están definidas en `vector_ops_inline.h`. Al incluirse en la misma unidad de compilación que `main`, GCC puede analizar su contenido e insertar las operaciones directamente en los ciclos del programa.
+
+### Resultados experimentales
+
+| Ensayo | Fill A (μs/iteración) | Fill B (μs/iteración) | Suma (μs/iteración) | Total (s) |
+|---:|---:|---:|---:|---:|
+| 1 | 876.797 | 896.529 | 1692.438 | 3.465764 |
+| 2 | 842.909 | 854.104 | 1733.870 | 3.430883 |
+| 3 | 851.609 | 843.847 | 1740.054 | 3.435511 |
+| **Promedio** | **857.105** | **864.826** | **1722.121** | **3.444053** |
+
+### Comparación
+
+| Versión | Tiempo promedio (s) | Diferencia frente a inline |
+|---|---:|---:|
+| Estática | 3.395027 | -1.44 % |
+| Dinámica | 5.933584 | +72.28 % |
+| **Static inline** | **3.444053** | **Referencia** |
+
+La versión inline obtuvo un tiempo similar al de la biblioteca estática y fue un `41.96 %` más rápida que la dinámica. La diferencia de `1.44 %` respecto a la estática es pequeña y puede atribuirse a la variación normal de las mediciones y al costo dominante de recorrer los vectores en memoria.
+
+La inspección del ejecutable confirma que no existen símbolos ni llamadas a `fill_vector_inline`, `add_vectors_inline`, `value_from_index_inline` o `add_values_inline`. GCC insertó estas operaciones dentro de `main`. Esto le permite optimizar a través de los límites de las funciones, mientras que una biblioteca compilada por separado limita la información disponible durante la compilación del programa.
+
+De acuerdo con la definición de rendimiento del Capítulo 1, los tiempos cercanos de las versiones estática e inline representan un rendimiento equivalente para esta prueba. Declarar una función `static inline` facilita la optimización, pero no garantiza una mejora visible cuando el acceso a memoria domina la carga de trabajo.
